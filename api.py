@@ -1,11 +1,6 @@
-from sanic import Sanic, response
+from sanic import Sanic
 from sanic.response import json, file
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from vermion_bot.database.database import DatabaseManager
+from bot.database.database import DatabaseManager
 
 app = Sanic("discord_config_api")
 
