@@ -1,8 +1,16 @@
 from sanic import Sanic
 from sanic.response import json, file
+from sanic_cors import CORS
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from bot.database.database import DatabaseManager
 
 app = Sanic("discord_config_api")
+CORS(app)
 
 db = DatabaseManager(
     dbname='vermion',
@@ -12,13 +20,20 @@ db = DatabaseManager(
     port='5432'
 )
 
-@app.before_server_start
-async def setup(app, loop):
-    print("🚀 API Server elindult!")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DASHBOARD_DIR = os.path.join(BASE_DIR, "dashboard")
 
 @app.get("/")
 async def index(request):
-    return await file("vermion-dashboard/index.html")
+    return await file(os.path.join(DASHBOARD_DIR, "index.html"))
+
+@app.get("/script.js")
+async def serve_js(request):
+    return await file(os.path.join(DASHBOARD_DIR, "script.js"))
+
+@app.get("/styles.css")
+async def serve_css(request):
+    return await file(os.path.join(DASHBOARD_DIR, "styles.css"))
 
 @app.post("/api/config")
 async def save_config(request):
