@@ -44,16 +44,36 @@ async def config_page(request):
     except ValueError:
         return response.json({'success': False, 'error': 'Érvénytelen guild_id'}, status=400)
     
-    if not db.check_token_valid(token, guild_id):
-        return response.json({'success': False, 'error': 'Érvénytelen, lejárt vagy már használt token'}, status=403)
-    
     return await response.file(os.path.join(DASHBOARD_DIR, "index.html"))
+
+@app.get("/api/config/<guild_id>")
+async def get_config(request, guild_id):
+    try:
+        guild_id = int(guild_id)
+    except ValueError:
+        return response.json({'success': False, 'error': 'Érvénytelen guild_id'}, status=400)
+    
+    try:
+        test_message = db.get_test_message(guild_id)
+        if test_message:
+            return response.json({'success': True, 'test_message': test_message})
+        else:
+            return response.json({'success': False, 'error': 'Nincs adat erre a szerverhez'}, status=404)
+    except Exception as e:
+        print(f"❌ Hiba a config lekérésé során: {e}")
+        return response.json({'success': False, 'error': str(e)}, status=500)
 
 @app.post("/api/config")
 async def save_config(request):
     try:
         data = request.json
-        guild_id = int(data.get('guild_id'))
+        guild_id_str = data.get('guild_id')
+        
+        try:
+            guild_id = int(guild_id_str)
+        except (ValueError, TypeError):
+            return response.json({'success': False, 'error': 'Érvénytelen guild_id'}, status=400)
+        
         token = data.get('token')
         test_message = data.get('test_message')
         
