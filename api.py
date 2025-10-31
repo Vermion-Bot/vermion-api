@@ -163,14 +163,21 @@ async def get_guilds(request):
     
     guilds = db.get_user_guilds(user['user_id'], manageable_only=True)
     
-    return response.json({
-        'success': True,
-        'guilds': [{
+    guilds_with_bot_status = []
+    for g in guilds:
+        guild_data = {
             'id': str(g['guild_id']),
             'name': g['guild_name'],
             'icon': g['guild_icon'],
-            'owner': g['owner']
-        } for g in guilds]
+            'owner': g['owner'],
+            'permissions': g['permissions'],
+            'bot_in_guild': db.is_bot_in_guild(g['guild_id'])
+        }
+        guilds_with_bot_status.append(guild_data)
+    
+    return response.json({
+        'success': True,
+        'guilds': guilds_with_bot_status
     })
 
 @app.get("/api/config/<guild_id>")
