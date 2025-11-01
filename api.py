@@ -27,6 +27,7 @@ db = DatabaseManager(
 DISCORD_CLIENT_ID = os.getenv('DISCORD_CLIENT_ID')
 DISCORD_CLIENT_SECRET = os.getenv('DISCORD_CLIENT_SECRET')
 DISCORD_REDIRECT_URI = os.getenv('DISCORD_REDIRECT_URI')
+DISCORD_BOT_TOKEN = os.getenv('DISCORD_TOKEN')
 DISCORD_API_ENDPOINT = 'https://discord.com/api/v10'
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -253,6 +254,186 @@ async def save_config(request, guild_id):
     except Exception as e:
         print(f"❌ Hiba a mentés során: {e}")
         return response.json({'success': False, 'error': str(e)}, status=500)
+    
+@app.get("/api/channels/<guild_id>")
+async def get_guild_channels(request, guild_id):
+    session_id = get_session_from_request(request)
+    user = get_user_from_session(session_id)
+
+    if not user:
+        return response.json({"success": False, "error": "Nem vagy bejelentkezve!"}, status=401)
+    
+    try:
+        guild_id = int(guild_id)
+    except ValueError:
+        return response.json({"success": False, "error": "Érvénytelen guild_id"}, status=400)
+
+    if not db.check_user_guild_permission(user['user_id'], guild_id):
+        return response.json({"success": False, "error": "Nincsen jogod!"}, status=401)
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'Authorization': f'Bot {DISCORD_BOT_TOKEN}'
+            }
+
+            async with session.get(f'{DISCORD_API_ENDPOINT}/guilds/{guild_id}/channels', headers=headers) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    print(f"Channels lekérési hiba: {error_text}")
+                    response.json({"success": False, "error": "Nem sikerült lekérni a csatornákat!"}, status=500)
+                
+                channels = await resp.json()
+
+                # csak text_channelek
+
+                text_channels = []
+
+                for channel in channels:
+                    if channel['type'] in [0, 5]:
+                        text_channels.append({
+                            'id': str(channel['id']),
+                            'name': channel['name'],
+                            'type': channel['type'],
+                            'position': channel.get('position', 0),
+                            'parent_id': str(channel.get('parent_id')) if channel.get('parent_id') else None
+                        })
+                
+                # a szerveren lévő pozicio alapjan rendezzuk oket.
+
+                text_channels.sort(key=lambda x: x['position'])
+
+                return response.json({
+                    'success': True,
+                    'channels': text_channels
+                })
+    except Exception as e:
+        print(f"Hiba a channels lekérése során: {e}")
+        response.json({"success": False, "error": f"Error: {e}"}, status=500)
+
+@app.post("/api/embed/send")
+async def send_embed(request):
+    session_id = get_session_from_request(request)
+    user = get_user_from_session(session_id)
+    
+    if not user:
+        return response.json({'success': False, 'error': 'Nem vagy bejelentkezve'}, status=401)
+    
+    try:
+        data = request.json
+        guild_id = int(data.get('guild_id'))
+        channel_id = data.get('channel_id')
+        embed_data = data.get('embed')
+        
+        if not channel_id or not embed_data:
+            return response.json({'success': False, 'error': 'Hiányzó adatok'}, status=400)
+        
+        if not db.check_user_guild_permission(user['user_id'], guild_id):
+            return response.json({'success': False, 'error': 'Nincs jogosultságod ehhez a szerverhez'}, status=403)
+        
+        # Embed küldése Discord API-n keresztül
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'Authorization': f'Bot {DISCORD_BOT_TOKEN}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Embed építése
+            discord_embed = {}
+            
+            if embed_data.get('title'):
+                discord_embed['title'] = embed_data['title']
+            
+            if embed_data.get('description'):
+                discord_embed['description'] = embed_data['description']
+            
+            if embed_data.get('color'):
+                color_hex = embed_data['color'].replace('#', '')
+                discord_embed['color'] = int(color_hex, 16)
+            
+            if embed_data.get('url'):
+                discord_embed['url'] = embed_data['url']
+            
+            if embed_data.get('timestamp'):
+                discord_embed['timestamp'] = embed_data['timestamp']
+            
+            # Author
+            if embed_data.get('author_name'):
+                discord_embed['author'] = {
+                    'name': embed_data['author_name']
+                }
+                if embed_data.get('author_url'):
+                    discord_embed['author']['url'] = embed_data['author_url']
+                if embed_data.get('author_icon'):
+                    discord_embed['author']['icon_url'] = embed_data['author_icon']
+            
+            # Footer
+            if embed_data.get('footer_text'):
+                discord_embed['footer'] = {
+                    'text': embed_data['footer_text']
+                }
+                if embed_data.get('footer_icon'):
+                    discord_embed['footer']['icon_url'] = embed_data['footer_icon']
+            
+            # Thumbnail
+            if embed_data.get('thumbnail'):
+                discord_embed['thumbnail'] = {
+                    'url': embed_data['thumbnail']
+                }
+            
+            # Image
+            if embed_data.get('image'):
+                discord_embed['image'] = {
+                    'url': embed_data['image']
+                }
+            
+            # Fields
+            if embed_data.get('fields'):
+                discord_embed['fields'] = []
+                for field in embed_data['fields']:
+                    if field.get('name') and field.get('value'):
+                        discord_embed['fields'].append({
+                            'name': field['name'],
+                            'value': field['value'],
+                            'inline': field.get('inline', False)
+                        })
+            
+            payload = {
+                'embeds': [discord_embed]
+            }
+            
+            async with session.post(
+                f'{DISCORD_API_ENDPOINT}/channels/{channel_id}/messages',
+                headers=headers,
+                json=payload
+            ) as resp:
+                if resp.status not in [200, 201]:
+                    error_text = await resp.text()
+                    print(f"❌ Embed küldési hiba: {error_text}")
+                    return response.json({'success': False, 'error': 'Nem sikerült elküldeni az embedet'}, status=500)
+                
+                result = await resp.json()
+                
+                db.log_action(
+                    user['user_id'],
+                    guild_id,
+                    'embed_sent',
+                    f"Embed elküldve a #{channel_id} csatornába",
+                    request.ip
+                )
+                
+                return response.json({
+                    'success': True,
+                    'message': 'Embed sikeresen elküldve!',
+                    'message_id': result['id']
+                })
+                
+    except Exception as e:
+        print(f"❌ Hiba az embed küldése során: {e}")
+        import traceback
+        traceback.print_exc()
+        return response.json({'success': False, 'error': str(e)}, status=500)
+
 
 if __name__ == "__main__":
     print(f"""
