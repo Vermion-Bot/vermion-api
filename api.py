@@ -46,6 +46,12 @@ def get_user_from_session(session_id):
 async def index(request):
     return await response.file(os.path.join(DASHBOARD_DIR, "index.html"))
 
+@app.get("/invite")
+async def invite_bot(request):
+    permissions = 8  
+    invite_url = f"https://discord.com/api/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&permissions={permissions}&scope=bot%20applications.commands"
+    return response.redirect(invite_url)
+
 @app.get("/auth/login")
 async def auth_login(request):
     params = {
@@ -255,6 +261,7 @@ if __name__ == "__main__":
     ╠══════════════════════════════════════════════╣
     ║  Client ID: {DISCORD_CLIENT_ID[:20]}...          ║
     ║  Redirect URI: {DISCORD_REDIRECT_URI[:30]}... ║
+    ║  Bot Invite: http://localhost:8000/invite    ║
     ╚══════════════════════════════════════════════╝
     """)
     app.run(host="0.0.0.0", port=8000)
