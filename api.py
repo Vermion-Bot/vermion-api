@@ -311,6 +311,100 @@ async def get_guild_channels(request, guild_id):
         print(f"Hiba a channels lekérése során: {e}")
         response.json({"success": False, "error": f"Error: {e}"}, status=500)
 
+@app.post("/api/dropdown/send")
+async def send_dropdown(request):
+    session_id = get_session_from_request(request)
+    user = get_user_from_session(session_id)
+
+    if not user:
+        return response.json({'success': False, 'error': 'Nem vagy bejelentkezve'}, status=401)
+    
+    try:
+        data = request.json
+        guild_id = int(data.get("guild_id"))
+        channel_id = data.get("channel_id")
+        dropdown_data = data.get("dropdown")
+
+        if not channel_id or not dropdown_data:
+            return response.json({'success': False, 'error': 'Hiányzó adatok'}, status=400)
+        
+        if not db.check_user_guild_permission(user['user_id'], guild_id):
+            return response.json({'success': False, 'error': 'Nincs jogosultságod ehhez a szerverhez'}, status=403)
+        
+        options = dropdown_data.get("options", [])
+
+        if not options:
+            return response.json({'success': False, 'error': 'Legalább 1 opció szükséges'}, status=400)
+        
+        if len(options) > 25:
+            return response.json({'success': False, 'error': 'Maximum 25 opció lehet'}, status=400)
+
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
+                "Content-Type": "application/json"
+            }
+
+            select_options = []
+
+            for opt in options:
+                option_dict = {
+                    "label": opt.get("label"),
+                    "value": opt.get("value")
+                }
+
+                if opt.get("description"):
+                    option_dict["description"] = opt.get("description")
+
+                if opt.get("emoji"):
+                    option_dict["emoji"] = {"name": opt["emoji"]} # így kell discord objektumot kuldeni -.- azt hittem, hogy szimpla opt.get(), dict-be kell rakni.
+                
+                # azt se tudtam, hogy van ilyen h default xdd
+
+                if opt.get("default"):
+                    option_dict["default"] = True
+
+                select_options.append(option_dict)
+
+            select_component = {
+                "type": 1,
+                "components": [{
+                    "type": 3,
+                    "custom_id": dropdown_data.get("custom_id", f"dropdown_{guild_id}_{channel_id}"),
+                    "placeholder": dropdown_data.get("placeholder", "Válassz egy opciót..."),
+                    "min_values": dropdown_data.get("min_values", 1),
+                    "max_values": dropdown_data.get("max_values", 1),
+                    "options": select_options
+                }]
+            }
+
+            payload = {
+                "content": dropdown_data.get("message", None),
+                "components": [select_component]
+            }
+
+            async with session.post(
+                f'{DISCORD_API_ENDPOINT}/channels/{channel_id}/messages',
+                headers=headers,
+                json=payload
+            ) as resp:
+                if resp.status not in [200, 201]:
+                    error_text = await resp.text()
+                    print(f"❌ Dropdown küldési hiba: {error_text}")
+                    return response.json({'success': False, 'error': 'Nem sikerült elküldeni a dropdown-ot'}, status=500)
+                
+                result = await resp.json()
+                
+                return response.json({
+                    'success': True,
+                    'message': 'Dropdown sikeresen elküldve!',
+                    'message_id': result['id']
+                })
+
+    except Exception as e:
+        print(f"❌ Hiba az embed küldése során: {e}")
+        return response.json({'success': False, 'error': str(e)}, status=500)
+
 @app.post("/api/embed/send")
 async def send_embed(request):
     session_id = get_session_from_request(request)
@@ -430,8 +524,6 @@ async def send_embed(request):
                 
     except Exception as e:
         print(f"❌ Hiba az embed küldése során: {e}")
-        import traceback
-        traceback.print_exc()
         return response.json({'success': False, 'error': str(e)}, status=500)
 
 
