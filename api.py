@@ -281,7 +281,7 @@ async def get_guild_channels(request, guild_id):
                 if resp.status != 200:
                     error_text = await resp.text()
                     print(f"Channels lekérési hiba: {error_text}")
-                    response.json({"success": False, "error": "Nem sikerült lekérni a csatornákat!"}, status=500)
+                    return response.json({"success": False, "error": "Nem sikerült lekérni a csatornákat!"}, status=500)
                 
                 channels = await resp.json()
 
